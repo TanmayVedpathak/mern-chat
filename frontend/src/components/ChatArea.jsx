@@ -1,11 +1,12 @@
 import { Box, VStack, Text, Input, Button, Flex, Icon, Avatar, InputGroup, InputRightElement, useToast } from "@chakra-ui/react";
 import { FiSend, FiInfo, FiMessageCircle } from "react-icons/fi";
+import { MdDelete } from "react-icons/md";
 import UsersList from "./UsersList";
-import { useEffect, useRef, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import axios from "axios";
 
-const ChatArea = ({ socket, selectedGroup, setSelectedGroup }) => {
-  let tag;
+const ChatArea = ({ socket, selectedGroup, setSelectedGroup, fetchGroup }) => {
+  let lastDate = null;
 
   const [newMessages, setNewMessages] = useState("");
   const [messages, setMessages] = useState([]);
@@ -66,6 +67,7 @@ const ChatArea = ({ socket, selectedGroup, setSelectedGroup }) => {
         status: "error",
         duration: 3000,
         isClosable: true,
+        position: "top-right",
       });
     }
   };
@@ -91,6 +93,128 @@ const ChatArea = ({ socket, selectedGroup, setSelectedGroup }) => {
     }, 2000);
   };
 
+  const handleAccept = async (userId) => {
+    try {
+      const token = currentUser?.token;
+
+      const { data } = await axios.post(
+        import.meta.env.VITE_DOMAIN + `/api/groups/${selectedGroup?._id}/accept`,
+        { userId },
+        {
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        }
+      );
+
+      toast({
+        title: "Request accept successfully",
+        status: "success",
+        duration: 3000,
+        isClosable: true,
+        position: "top-right",
+      });
+
+      socket.emit("request accept", {
+        recipientId: userId,
+        group: selectedGroup,
+      });
+
+      setSelectedGroup(data?.group);
+    } catch (error) {
+      console.log(error);
+      toast({
+        title: "Error sending message",
+        status: "error",
+        duration: 3000,
+        isClosable: true,
+        position: "top-right",
+      });
+    }
+  };
+
+  const handleReject = async (userId) => {
+    try {
+      const token = currentUser?.token;
+
+      const { data } = await axios.post(
+        import.meta.env.VITE_DOMAIN + `/api/groups/${selectedGroup?._id}/reject`,
+        { userId },
+        {
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        }
+      );
+
+      toast({
+        title: "Request reject successfully",
+        status: "success",
+        duration: 3000,
+        isClosable: true,
+        position: "top-right",
+      });
+
+      socket.emit("request reject", {
+        recipientId: userId,
+        group: selectedGroup,
+      });
+
+      setSelectedGroup(data?.group);
+    } catch (error) {
+      console.log(error);
+      toast({
+        title: "Error sending message",
+        status: "error",
+        duration: 3000,
+        isClosable: true,
+        position: "top-right",
+      });
+    }
+  };
+
+  const handleGroupDelete = async () => {
+    try {
+      const token = currentUser?.token;
+
+      await axios.post(
+        import.meta.env.VITE_DOMAIN + `/api/groups/${selectedGroup?._id}/delete`,
+        {},
+        {
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        }
+      );
+
+      socket.emit("delete group", {
+        groupId: selectedGroup?._id,
+        deletedBy: currentUser,
+      });
+
+      toast({
+        title: "Group Deleted",
+        description: "Group deleted successfully.",
+        status: "success",
+        duration: 3000,
+        isClosable: true,
+      });
+
+      setSelectedGroup(null);
+      fetchGroup();
+    } catch (error) {
+      console.log(error);
+      toast({
+        title: "Error deleting group",
+        description: error.response.data.message || "An error occur",
+        status: "error",
+        duration: 3000,
+        isClosable: true,
+        position: "top-right",
+      });
+    }
+  };
+
   // format time
   const formatTime = (date) => {
     return new Date(date).toLocaleTimeString("en-US", {
@@ -100,8 +224,16 @@ const ChatArea = ({ socket, selectedGroup, setSelectedGroup }) => {
   };
 
   // format date
-  const formatDate = (date) => {
-    return new Date(date).toDateString("en-US", {
+  const formatDate = (dateString) => {
+    const date = new Date(dateString);
+    const today = new Date();
+    const yesterday = new Date();
+    yesterday.setDate(today.getDate() - 1);
+
+    if (date.toDateString() === today.toDateString()) return "Today";
+    if (date.toDateString() === yesterday.toDateString()) return "Yesterday";
+
+    return date.toDateString("en-US", {
       year: "numeric",
       month: "long",
       day: "numeric",
@@ -195,6 +327,24 @@ const ChatArea = ({ socket, selectedGroup, setSelectedGroup }) => {
         });
       });
 
+      socket.on("group deleted", (data) => {
+        console.log(data);
+        toast({
+          title: "Group Deleted",
+          description: data.message,
+          status: "warning",
+          duration: 4000,
+          isClosable: true,
+          position: "top-right",
+        });
+
+        if (selectedGroup?._id === data.groupId) {
+          setSelectedGroup(null);
+          setMessages([]);
+        }
+
+        fetchGroup();
+      });
       //clean up
       return () => {
         socket.emit("leave room", selectedGroup?._id);
@@ -205,6 +355,60 @@ const ChatArea = ({ socket, selectedGroup, setSelectedGroup }) => {
         socket.off("notification");
         socket.off("user typing");
         socket.off("user stop typing");
+        socket.off("group deleted");
+      };
+    }
+
+    if (socket) {
+      socket.on("request sended", (data) => {
+        toast({
+          title: "Request received",
+          description: data.message,
+          status: "info",
+          duration: 3000,
+          isClosable: true,
+          position: "top-right",
+        });
+
+        fetchGroup();
+      });
+
+      socket.on("request accepted", (data) => {
+        toast({
+          title: "Request Accepted",
+          description: data.message,
+          status: "success",
+          duration: 3000,
+          isClosable: true,
+          position: "top-right",
+        });
+
+        fetchGroup();
+      });
+
+      socket.on("request rejected", (data) => {
+        toast({
+          title: "Request Rejected",
+          description: data.message,
+          status: "success",
+          duration: 3000,
+          isClosable: true,
+          position: "top-right",
+        });
+
+        fetchGroup();
+      });
+
+      socket.on("notification", (notification) => {
+        if (notification.type === "GROUP_DELETED") {
+          fetchGroup();
+        }
+      });
+
+      //clean up
+      return () => {
+        socket.off("request accepted");
+        socket.off("request rejected");
       };
     }
   }, [selectedGroup, socket]);
@@ -228,7 +432,7 @@ const ChatArea = ({ socket, selectedGroup, setSelectedGroup }) => {
                   {selectedGroup?.description}
                 </Text>
               </Box>
-              <Icon as={FiInfo} fontSize="20px" color="gray.400" cursor="pointer" _hover={{ color: "blue.500" }} />
+              <Icon as={MdDelete} fontSize="20px" color="red.400" cursor="pointer" _hover={{ color: "red.500" }} onClick={handleGroupDelete} />
             </Flex>
 
             {/* Messages Area */}
@@ -254,37 +458,46 @@ const ChatArea = ({ socket, selectedGroup, setSelectedGroup }) => {
               }}
             >
               {messages?.map((message) => {
-                const date = formatDate(message?.createdAt);
+                const dateLabel = formatDate(message?.createdAt);
+                const showDate = lastDate !== dateLabel;
+                lastDate = dateLabel;
 
                 return (
-                  <>
-                    {tag !== date && date}
-                    <Box key={message.id} alignSelf={message?.sender?._id === currentUser?.id ? "flex-start" : "flex-end"} maxW="70%">
+                  <React.Fragment key={message._id}>
+                    {showDate && (
+                      <Flex justify="center" my={3}>
+                        <Text fontSize="sm" color="gray.500">
+                          {dateLabel}
+                        </Text>
+                      </Flex>
+                    )}
+
+                    <Box alignSelf={message?.sender?._id === currentUser?._id ? "flex-end" : "flex-start"} maxW="70%" mb={2}>
                       <Flex direction="column" gap={1}>
-                        <Flex align="center" mb={1} justifyContent={message?.sender?._id === currentUser?.id ? "flex-start" : "flex-end"} gap={2}>
-                          {message?.sender?._id === currentUser?.id ? (
+                        <Flex align="center" mb={1} justifyContent={message?.sender?._id === currentUser?._id ? "flex-end" : "flex-start"} gap={2}>
+                          {message?.sender?._id === currentUser?._id ? (
                             <>
-                              <Avatar size="xs" name={message.sender.username} />
                               <Text fontSize="xs" color="gray.500">
                                 You • {formatTime(message.createdAt)}
                               </Text>
+                              <Avatar size="xs" name={message.sender.username} />
                             </>
                           ) : (
                             <>
+                              <Avatar size="xs" name={message.sender.username} />
                               <Text fontSize="xs" color="gray.500">
                                 {message.sender.username} • {formatTime(message.createdAt)}
                               </Text>
-                              <Avatar size="xs" name={message.sender.username} />
                             </>
                           )}
                         </Flex>
 
-                        <Box bg={message?.sender?._id === currentUser?.id ? "blue.500" : "white"} color={message?.sender?._id === currentUser?.id ? "white" : "gray.800"} p={3} borderRadius="lg" boxShadow="sm">
+                        <Box bg={message?.sender?._id === currentUser?._id ? "blue.500" : "white"} color={message?.sender?._id === currentUser?._id ? "white" : "gray.800"} p={3} borderRadius="lg" boxShadow="sm">
                           <Text>{message.content}</Text>
                         </Box>
                       </Flex>
                     </Box>
-                  </>
+                  </React.Fragment>
                 );
               })}
               {renderTypingIndicator()}
@@ -345,7 +558,7 @@ const ChatArea = ({ socket, selectedGroup, setSelectedGroup }) => {
       </Box>
 
       <Box width="260px" position="sticky" right={0} top={0} height="100%" flexShrink={0}>
-        {selectedGroup && <UsersList users={connectedUsers} />}
+        {selectedGroup && <UsersList users={connectedUsers} selectedGroup={selectedGroup} handleAccept={handleAccept} handleReject={handleReject} />}
       </Box>
     </Flex>
   );

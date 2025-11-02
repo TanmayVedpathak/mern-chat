@@ -1,12 +1,18 @@
 const socketIo = (io) => {
   //Store connected users with their room information using socket.id as their key
   const connectedUsers = new Map();
+  const userSocketMap = new Map();
 
   //Handle new socket connections
   io.on("connection", (socket) => {
     //Get user from authentication
     const user = socket.handshake.auth.user;
     console.log("User connected", user?.username);
+
+    // store mapping
+    if (user?.id) {
+      userSocketMap.set(user?.id, socket.id);
+    }
 
     //!START: Join room Handler
     socket.on("join room", (groupId) => {
@@ -44,7 +50,11 @@ const socketIo = (io) => {
       if (connectedUsers.has(socket.id)) {
         //Remove user from connected users and notify others
         connectedUsers.delete(socket.id);
-        socket.to(groupId).emit("user left", user?._id);
+        socket.to(groupId).emit("user left", user?.id);
+      }
+
+      if (user?.id) {
+        userSocketMap.delete(user?.id);
       }
     });
     //!END:Leave room Handler
@@ -67,10 +77,14 @@ const socketIo = (io) => {
         const userData = connectedUsers.get(socket.id);
 
         //Notify others in the room about user's departure
-        socket.to(userData.room).emit("user left", user?._id);
+        socket.to(userData.room).emit("user left", user?.id);
 
         //Remove user from connected users
         connectedUsers.delete(socket.id);
+      }
+
+      if (user?.id) {
+        userSocketMap.delete(user?.id);
       }
     });
     //!END:Disconnect Handler
@@ -87,6 +101,72 @@ const socketIo = (io) => {
       socket.to(groupId).emit("user stop typing", { username: user?.username });
     });
     //!END:Typing Indicator
+
+    //! 🆕 START: Request Send Event
+    socket.on("request send", ({ adminId, groupName }) => {
+      const recipientSocketId = userSocketMap.get(String(adminId));
+
+      if (recipientSocketId) {
+        io.to(recipientSocketId).emit("request sended", {
+          message: `${user?.username} sended you request for group: ${groupName}`,
+        });
+      }
+    });
+
+    //! 🆕 END:  Request Send Event
+
+    //! 🆕 START: Request Accept Event
+    socket.on("request accept", ({ recipientId, group }) => {
+      const recipientSocketId = userSocketMap.get(String(recipientId));
+
+      if (recipientSocketId) {
+        io.to(recipientSocketId).emit("request accepted", {
+          group,
+          message: `${user?.username} accepted your request`,
+        });
+      }
+    });
+
+    //! 🆕 END:  Request Accept Event
+
+    //! 🆕 START: Request Reject Event
+    socket.on("request reject", ({ recipientId, group }) => {
+      const recipientSocketId = userSocketMap.get(String(recipientId));
+
+      if (recipientSocketId) {
+        io.to(recipientSocketId).emit("request rejected", {
+          group,
+          message: `${user?.username} rejected your request`,
+        });
+      }
+    });
+
+    //! 🆕 END:  Request Reject Event
+
+    //! 🆕 START: Delete Group Event
+    socket.on("delete group", ({ groupId, deletedBy }) => {
+      // Notify everyone currently in that room
+      io.to(groupId).emit("group deleted", {
+        groupId,
+        message: `${deletedBy?.username || "An admin"} deleted this group.`,
+      });
+
+      // Force all sockets to leave the room
+      const clients = io.sockets.adapter.rooms.get(groupId);
+      if (clients) {
+        for (const clientId of clients) {
+          const clientSocket = io.sockets.sockets.get(clientId);
+          if (clientSocket) clientSocket.leave(groupId);
+        }
+      }
+
+      socket.broadcast.emit("notification", {
+        type: "GROUP_DELETED",
+        title: "Server Notice",
+        message: "A global update has been made.",
+      });
+    });
+    //! 🆕 END: Delete Group Event
   });
 };
 

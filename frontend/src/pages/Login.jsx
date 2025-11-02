@@ -1,7 +1,7 @@
 import { Box, Button, FormControl, FormLabel, Input, VStack, Text, useToast } from "@chakra-ui/react";
 import { Link, useNavigate } from "react-router-dom";
 import { FiLogIn } from "react-icons/fi";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import axios from "axios";
 
 const Login = () => {
@@ -26,10 +26,19 @@ const Login = () => {
         status: "error",
         duration: 5000,
         isClosable: true,
+        position: "top-right",
       });
       setLoading(false);
     }
   };
+
+  useEffect(() => {
+    const currentUser = JSON.parse(localStorage.getItem("userInfo") || null);
+    const token = currentUser?.token;
+    if (token) {
+      navigate("/chat");
+    }
+  }, []);
 
   return (
     <Box w="100%" h="100vh" display="flex" alignItems="center" justifyContent="center" bgGradient="linear(to-r, blue.600, purple.600)">

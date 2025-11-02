@@ -4,10 +4,8 @@ import { FiLogOut, FiPlus, FiUsers } from "react-icons/fi";
 import { useNavigate } from "react-router-dom";
 import axios from "axios";
 
-const Sidebar = ({ setSelectedGroup }) => {
+const Sidebar = ({ socket, setSelectedGroup, fetchGroup, fetchGroupById, groups, userGroups }) => {
   const { isOpen, onOpen, onClose } = useDisclosure();
-  const [groups, setGroups] = useState([]);
-  const [userGroups, setUserGroups] = useState([]);
   const [newGroupName, setNewGroupName] = useState("");
   const [newGroupDescription, setNewGroupDescription] = useState("");
   const [isAdmin, setIsAdmin] = useState(false);
@@ -19,32 +17,6 @@ const Sidebar = ({ setSelectedGroup }) => {
   // check if the user is admin
   const checkAdminStatus = () => {
     setIsAdmin(userInfo?.isAdmin || false);
-  };
-
-  // fetch all group
-  const fetchGroup = async () => {
-    try {
-      const token = userInfo?.token || "";
-
-      const { data } = await axios.get(import.meta.env.VITE_DOMAIN + "/api/groups/", {
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-      });
-
-      setGroups(data?.groups || []);
-
-      // get user group id
-      const userGroupIds = data?.groups
-        ?.filter((group) => {
-          return group?.members?.some((member) => member?._id === userInfo?.id);
-        })
-        .map((group) => group?._id);
-
-      setUserGroups(userGroupIds);
-    } catch (error) {
-      console.log(error);
-    }
   };
 
   // create group
@@ -70,6 +42,7 @@ const Sidebar = ({ setSelectedGroup }) => {
         status: "success",
         duration: 3000,
         isClosable: true,
+        position: "top-right",
       });
 
       onClose();
@@ -85,12 +58,13 @@ const Sidebar = ({ setSelectedGroup }) => {
         status: "error",
         duration: 3000,
         isClosable: true,
+        position: "top-right",
       });
     }
   };
 
   // join group
-  const handleJoinGroup = async (groupId) => {
+  const handleJoinGroup = async (groupId, groupName, adminId) => {
     try {
       const token = userInfo?.token || "";
 
@@ -105,13 +79,15 @@ const Sidebar = ({ setSelectedGroup }) => {
       );
 
       await fetchGroup();
-      setSelectedGroup(groups.find((g) => g?._id === groupId));
+
+      socket.emit("request send", { adminId, groupName });
 
       toast({
-        title: "Joined group successfully",
+        title: "Request send successfully",
         status: "success",
         duration: 3000,
         isClosable: true,
+        position: "top-right",
       });
     } catch (error) {
       console.log(error);
@@ -122,6 +98,7 @@ const Sidebar = ({ setSelectedGroup }) => {
         status: "error",
         duration: 3000,
         isClosable: true,
+        position: "top-right",
       });
     }
   };
@@ -149,6 +126,7 @@ const Sidebar = ({ setSelectedGroup }) => {
         status: "success",
         duration: 3000,
         isClosable: true,
+        position: "top-right",
       });
     } catch (error) {
       console.log(error);
@@ -159,6 +137,7 @@ const Sidebar = ({ setSelectedGroup }) => {
         status: "error",
         duration: 3000,
         isClosable: true,
+        position: "top-right",
       });
     }
   };
@@ -202,7 +181,7 @@ const Sidebar = ({ setSelectedGroup }) => {
         <VStack spacing={3} align="stretch">
           {groups.map((group) => (
             <Box
-              key={group.id}
+              key={group._id}
               p={4}
               cursor="pointer"
               borderRadius="lg"
@@ -217,7 +196,7 @@ const Sidebar = ({ setSelectedGroup }) => {
               }}
             >
               <Flex justify="space-between" align="center">
-                <Box onClick={() => userGroups?.includes(group?._id) && setSelectedGroup(group)} flex="1">
+                <Box onClick={() => fetchGroupById(group?._id)} flex="1">
                   <Flex align="center" mb={2}>
                     <Text fontWeight="bold" color="gray.800">
                       {group.name}
@@ -232,28 +211,44 @@ const Sidebar = ({ setSelectedGroup }) => {
                     {group.description}
                   </Text>
                 </Box>
-                <Button
-                  size="sm"
-                  colorScheme={userGroups?.includes(group?._id) ? "red" : "blue"}
-                  variant={userGroups?.includes(group?._id) ? "ghost" : "solid"}
-                  ml={3}
-                  _hover={{
-                    transform: userGroups?.includes(group?._id) ? "scale(1.05)" : "none",
-                    bg: userGroups?.includes(group?._id) ? "red.50" : "blue.600",
-                  }}
-                  transition="all 0.2s"
-                  onClick={() => {
-                    userGroups?.includes(group?._id) ? handleLeaveGroup(group?._id) : handleJoinGroup(group?._id);
-                  }}
-                >
-                  {userGroups?.includes(group?._id) ? (
-                    <Text fontSize="sm" fontWeight="medium">
-                      Leave
-                    </Text>
-                  ) : (
-                    "Join"
-                  )}
-                </Button>
+                {group?.newMembers?.some((member) => member._id === userInfo?.id) ? (
+                  <Button
+                    size="sm"
+                    colorScheme={userGroups?.includes(group?._id) ? "red" : "blue"}
+                    variant={userGroups?.includes(group?._id) ? "ghost" : "solid"}
+                    ml={3}
+                    _hover={{
+                      transform: userGroups?.includes(group?._id) ? "scale(1.05)" : "none",
+                      bg: userGroups?.includes(group?._id) ? "red.50" : "blue.600",
+                    }}
+                    transition="all 0.2s"
+                  >
+                    Requested
+                  </Button>
+                ) : (
+                  <Button
+                    size="sm"
+                    colorScheme={userGroups?.includes(group?._id) ? "red" : "blue"}
+                    variant={userGroups?.includes(group?._id) ? "ghost" : "solid"}
+                    ml={3}
+                    _hover={{
+                      transform: userGroups?.includes(group?._id) ? "scale(1.05)" : "none",
+                      bg: userGroups?.includes(group?._id) ? "red.50" : "blue.600",
+                    }}
+                    transition="all 0.2s"
+                    onClick={() => {
+                      userGroups?.includes(group?._id) ? handleLeaveGroup(group?._id) : handleJoinGroup(group?._id, group.name, group?.admin?._id);
+                    }}
+                  >
+                    {userGroups?.includes(group?._id) ? (
+                      <Text fontSize="sm" fontWeight="medium">
+                        Leave
+                      </Text>
+                    ) : (
+                      "Join"
+                    )}
+                  </Button>
+                )}
               </Flex>
             </Box>
           ))}

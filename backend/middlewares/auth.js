@@ -24,7 +24,6 @@ const isLogin = async (req, res, next) => {
 };
 
 const isAdmin = async (req, res, next) => {
-  console.log(req.user);
   try {
     if (req.user && req.user.isAdmin) {
       next();
